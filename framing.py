@@ -3,7 +3,8 @@ import numpy as np
 import os
 
 
-def enhance_roi(frame, alpha=1.5, beta=-50, gamma=1.0):
+def enhance_roi(frame, alpha=1.2, beta=-25, gamma=1.2):
+# def enhance_roi(frame, alpha=1.0, beta=0, gamma=1.2):
     """
     Enhance the cropped ROI by reducing brightness, applying gamma correction,
     boosting local contrast via CLAHE, and applying Gaussian blur to reduce noise.

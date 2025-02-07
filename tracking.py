@@ -1,91 +1,92 @@
+# tracking.py
+
 import cv2
 import numpy as np
 
 
-def track_mouse_in_frame(frame, prev_center=None, max_distance=100):
-    """
-    Detect dark blobs in the given frame using OpenCV's SimpleBlobDetector.
-    Returns a processed frame with the best candidate (assumed to be the mouse) highlighted.
+class MouseTracker:
+    def __init__(self, min_area=100):
+        """
+        Initialize the tracker with a background subtractor.
+        :param min_area: Minimum contour area to be considered valid motion.
+        """
+        # Create a background subtractor. Tweak history and varThreshold as needed.
+        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=True)
+        self.min_area = min_area
+        self.last_coordinate = None
 
-    If a previous center is provided, the blob closest to that center is chosen,
-    provided it is within max_distance; otherwise, the largest blob is selected.
+    def track_frame(self, frame):
+        """
+        Process a single frame to detect motion. Only the largest valid contour is tracked.
 
-    Args:
-        frame (numpy.ndarray): The input frame (BGR image).
-        prev_center (tuple): Optional (x, y) coordinate from the previous frame.
-        max_distance (float): Maximum allowed distance from prev_center to consider a blob.
+        :param frame: The current video frame.
+        :return: Tuple of (annotated frame, list containing a single keypoint tuple)
+        """
+        # Apply the background subtractor to obtain the foreground mask.
+        fg_mask = self.bg_subtractor.apply(frame)
 
-    Returns:
-        frame_with_detection (numpy.ndarray): The frame with the chosen candidate highlighted.
-        best_candidate (list): A list containing the best candidate keypoint, or empty if none found.
-    """
-    # Convert frame to grayscale.
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Threshold the mask to remove shadows (which appear as gray regions).
+        _, fg_mask = cv2.threshold(fg_mask, 244, 255, cv2.THRESH_BINARY)
 
-    # Apply median blur to reduce noise.
-    gray_blurred = cv2.medianBlur(gray, 11)
+        # Use morphological operations to remove noise.
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel, iterations=2)
+        fg_mask = cv2.dilate(fg_mask, kernel, iterations=2)
 
-    # Set up blob detector parameters.
-    params = cv2.SimpleBlobDetector_Params()
-    params.minThreshold = 0
-    params.maxThreshold = 256
-    params.filterByColor = True
-    params.blobColor = 0  # look for dark regions
-    params.filterByArea = True
-    params.minArea = 500  # increase minArea to filter out small noise
-    params.maxArea = 10000
-    # You can optionally enable filters like circularity if your mouse has a predictable shape.
-    params.filterByCircularity = False
-    params.filterByConvexity = False
-    params.filterByInertia = False
+        # Find contours in the mask.
+        contours, _ = cv2.findContours(fg_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    detector = cv2.SimpleBlobDetector_create(params)
-    keypoints = detector.detect(gray_blurred)
+        # Initialize variables for tracking the largest contour.
+        largest_contour = None
+        largest_area = 0
 
-    best_candidate = None
+        # Loop through contours and select the largest one that exceeds min_area.
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < self.min_area:
+                continue  # Skip small areas that are likely noise.
+            if area > largest_area:
+                largest_area = area
+                largest_contour = cnt
 
-    if keypoints:
-        if prev_center is not None:
-            # Compute the Euclidean distance between each keypoint and the previous center.
-            distances = [np.linalg.norm(np.array(kp.pt) - np.array(prev_center))
-                         for kp in keypoints]
-            # Find the candidate that is closest.
-            min_idx = np.argmin(distances)
-            if distances[min_idx] <= max_distance:
-                best_candidate = keypoints[min_idx]
+        # If a valid contour is found, compute its centroid.
+        if largest_contour is not None:
+            M = cv2.moments(largest_contour)
+            if M["m00"] != 0:
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+                self.last_coordinate = (cX, cY)
+
+                # Draw a red circle at the centroid.
+                cv2.circle(frame, (cX, cY), 5, (0, 0, 255), -1)
+
+                # Draw a green rectangle around the contour.
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                keypoints = [(cX, cY)]
             else:
-                # Fall back to choosing the largest blob.
-                best_candidate = max(keypoints, key=lambda kp: kp.size)
+                keypoints = []
         else:
-            # If no previous location is provided, choose the largest blob.
-            best_candidate = max(keypoints, key=lambda kp: kp.size)
-        keypoints = [best_candidate]  # Always return as a list.
-    else:
-        keypoints = []
+            # No valid motion detected; optionally, mark the last known coordinate.
+            if self.last_coordinate is not None:
+                cv2.circle(frame, self.last_coordinate, 5, (255, 0, 0), -1)
+                keypoints = [self.last_coordinate]
+            else:
+                keypoints = []
 
-    # Draw the selected candidate on the frame.
-    frame_with_detection = cv2.drawKeypoints(
-        frame, keypoints, np.array([]),
-        (0, 0, 255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
-    )
-
-    return frame_with_detection, keypoints
+        return frame, keypoints
 
 
-# Example usage:
-if __name__ == '__main__':
-    image_path = 'cropped_frames/frame_02700.png'
-    frame = cv2.imread(image_path)
+def track_mouse_in_frame(frame, tracker=None):
+    """
+    A convenience function to process a single frame.
+    If no tracker is passed, a new MouseTracker is instantiated.
 
-    # For testing, assume a previous center; in practice, update this each frame.
-    previous_center = (330, 130)  # Example coordinate
-    output_frame, keypoints = track_mouse_in_frame(frame, prev_center=previous_center)
-
-    if keypoints:
-        print("Detected candidate at:", keypoints[0].pt)
-    else:
-        print("No candidate detected.")
-
-    cv2.imshow("Tracked Frame", output_frame)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    :param frame: The frame to process.
+    :param tracker: (Optional) an existing MouseTracker instance.
+    :return: Tuple of (annotated frame, list with a single keypoint)
+    """
+    if tracker is None:
+        tracker = MouseTracker()
+    return tracker.track_frame(frame)

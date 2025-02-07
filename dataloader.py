@@ -12,14 +12,14 @@ class DataLoader:
         starting from that time, much like a deep learning data loader.
     """
 
-    def __init__(self, video_path, cropped_frames_folder):
+    def __init__(self, video_path, cropped_folder):
         """
         Args:
             video_path (str): Path to the original video file (used to extract FPS).
             cropped_frames_folder (str): Folder where the cropped frame images are stored.
         """
         self.video_path = video_path
-        self.cropped_frames_folder = cropped_frames_folder
+        self.cropped_frames_folder = cropped_folder
 
         # Extract FPS from the video file without loading the whole video.
         self.fps = self._get_video_fps(video_path)
@@ -27,7 +27,7 @@ class DataLoader:
             raise ValueError(f"Failed to extract FPS from video: {video_path}")
 
         # Prepare a sorted list of frame file paths from the cropped frames folder.
-        self.frame_paths = self._get_sorted_frame_paths(cropped_frames_folder)
+        self.frame_paths = self._get_sorted_frame_paths(cropped_folder)
         self.total_frames = len(self.frame_paths)
 
     def _get_video_fps(self, video_path):
