@@ -117,3 +117,13 @@ class DataLoader:
                 batch = []
         if batch:
             yield batch
+
+
+    def get_frame_dimensions(self):
+        """Retrieve width and height of a single frame."""
+        if not self.frame_paths:
+            raise ValueError("No frames found in the cropped folder.")
+        sample_frame = cv2.imread(self.frame_paths[0])
+        if sample_frame is None:
+            raise ValueError("Failed to load a sample frame.")
+        return sample_frame.shape[1], sample_frame.shape[0]
